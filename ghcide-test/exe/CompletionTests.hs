@@ -8,6 +8,7 @@
 module CompletionTests (tests) where
 
 import           Config
+import           Control.Exception              (throw)
 import           Control.Lens                   ((^.))
 import qualified Control.Lens                   as Lens
 import           Control.Monad
@@ -15,8 +16,12 @@ import           Control.Monad.IO.Class         (liftIO)
 import           Data.Default
 import           Data.List.Extra
 import           Data.Maybe
+import           Data.Maybe                     (fromJust)
 import qualified Data.Text                      as T
+import           Data.Traversable               (for)
+import           Debug.Trace                    (traceM)
 import           Development.IDE.Types.Location
+import           GHC
 import           Ide.Plugin.Config
 import qualified Language.LSP.Protocol.Lens     as L
 import           Language.LSP.Protocol.Message
@@ -25,7 +30,8 @@ import           Language.LSP.Protocol.Types    hiding
                                                  SemanticTokenRelative (..),
                                                  SemanticTokensEdit (..),
                                                  mkRange)
-import           Language.LSP.Test
+import           Language.LSP.Test              hiding
+                                                (getAndResolveCompletions)
 import           Test.Hls                       (waitForTypecheck)
 import qualified Test.Hls.FileSystem            as FS
 import           Test.Hls.FileSystem            (file, text)
@@ -73,6 +79,38 @@ completionTest name src pos expected = testSessionSingleFile name "A.hs" (T.unli
         when expectedDocs $
             liftIO $ assertBool ("Missing docs: " <> T.unpack _label) (isJust _documentation)
 
+-- Start WGL Working -----------------------------------------------------------
+
+commentTest =
+  let src = ["y = x -- a."]
+      src' = ["-- a."]
+      pos = Position 0 11
+   in testSessionSingleFile "comment" "A.hs" (T.unlines src) $ do
+        docId <- openDoc "A.hs" "haskell"
+        _ <- waitForDiagnostics
+        compls <- getAndResolveCompletions docId pos
+        -- liftIO $ print compls
+        liftIO $ print (length compls)
+        liftIO $ assertBool ("Completions in comment") (null compls)
+
+{- | Returns the completions for the position in the document, resolving any with
+ a non empty _data_ field.
+-}
+getAndResolveCompletions :: TextDocumentIdentifier -> Position -> Session [CompletionItem]
+getAndResolveCompletions doc pos = do
+  items <- getCompletions doc pos
+  traceM $ "Length of completions = " <> show (length items)
+  for items $ \item -> if isJust (item ^. L.data_) then resolveCompletion item else pure item
+
+-- | Resolves the provided completion item.
+resolveCompletion :: CompletionItem -> Session CompletionItem
+resolveCompletion ci = do
+  rsp <- request SMethod_CompletionItemResolve ci
+  case rsp ^. L.result of
+    Right ci   -> return ci
+    Left error -> throw (UnexpectedResponseError (fromJust $ rsp ^. L.id) error)
+
+-- End WGL Working -------------------------------------------------------------
 
 topLevelCompletionTests :: [TestTree]
 topLevelCompletionTests = [
@@ -114,7 +152,8 @@ topLevelCompletionTests = [
         ["data XxRecord = XyRecord { x:: String, y:: Int}", "bar = Xy" ]
         (Position 1 19)
         [("XyRecord", CompletionItemKind_Constructor, "XyRecord", False, True, Nothing),
-         ("XyRecord", CompletionItemKind_Snippet, "XyRecord {x=${1:_x}, y=${2:_y}}", False, True, Nothing)]
+         ("XyRecord", CompletionItemKind_Snippet, "XyRecord {x=${1:_x}, y=${2:_y}}", False, True, Nothing)],
+    commentTest
     ]
 
 localCompletionTests :: [TestTree]

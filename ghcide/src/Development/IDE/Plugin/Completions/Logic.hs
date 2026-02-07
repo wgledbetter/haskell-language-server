@@ -75,6 +75,14 @@ import           GHC.Plugins                              (Depth (AllTheWay),
                                                            neverQualify,
                                                            sdocStyle)
 
+import           Debug.Trace                              (trace, traceM)
+import           GHC.Parser.Annotation                    (AddEpAnn (..),
+                                                           AnnList (..),
+                                                           EpAnn (EpAnn),
+                                                           EpAnnComments (..),
+                                                           TrailingAnn,
+                                                           comments)
+
 -- See Note [Guidelines For Using CPP In GHCIDE Import Statements]
 
 
@@ -96,12 +104,101 @@ data Context = TypeContext
              | ImportListContext String -- ^ import list context with module name
              | ImportHidingContext String -- ^ import hiding context with module name
              | ExportContext -- ^ List of exported identifiers from the current module
+             | AnnotationContext
   deriving (Show, Eq)
+
+getCContext :: Position -> ParsedModule -> Maybe Context
+getCContext pos pm = let out = getCContext' pos pm in do
+  traceM $ "Getting context of position "
+    <> show pos
+    <> " in module's source "
+    <> show (pm_parsed_source pm)
+  traceM $ "Context = " <> show out
+  out
+
+instance Show (HsDecl a) where
+  show (TyClD      _ _) = "HsDecl: TyClD"
+  show (InstD      _ _) = "HsDecl: InstD"
+  show (DerivD     _ _) = "HsDecl: DerivD"
+  show (ValD       _ _) = "HsDecl: ValD"
+  show (SigD       _ _) = "HsDecl: SigD"
+  show (KindSigD   _ _) = "HsDecl: KindSigD"
+  show (DefD       _ _) = "HsDecl: DefD"
+  show (ForD       _ _) = "HsDecl: ForD"
+  show (WarningD   _ _) = "HsDecl: WarningD"
+  show (AnnD       _ _) = "HsDecl: AnnD"
+  show (RuleD      _ _) = "HsDecl: RuleD"
+  show (SpliceD    _ _) = "HsDecl: SpliceD"
+  show (DocD _ _)       = "HsDecl: DocD"
+  show (RoleAnnotD _ _) = "HsDecl: RoleAnnotD"
+  show (XHsDecl _)      = "HsDecl: XHsDecl"
+
+instance Show AnnListItem where
+  show (AnnListItem trail) = "AnnListItem " <> show trail
+
+instance (Show a) => Show (IE a) where
+  show _ = "IE"
+
+instance Show (ImportDecl a) where
+  show _ = "ImportDecl"
+
+instance Show TrailingAnn where
+  show _ = "TrailingAnn"
+
+instance Show (GhcPass Parsed) where
+  show _ = "GhcPass_Parsed"
+
+instance Show XModulePs where
+  show _ = "XModulePs"
+
+instance Show AnnList where
+  show (AnnList anchor brackets semis rest trailing) =
+    "AnnList ("
+    <> show anchor
+    <> ") ("
+    <> show brackets
+    <> ") ("
+    <> show semis
+    <> ") ("
+    <> show rest
+    <> ") ("
+    <> show trailing
+    <> ")"
+
+instance Show AddEpAnn where
+  show _ = "AddEpAnn"
+
+instance Show (HsModule GhcPs) where
+  show (HsModule modExt modName modExp modImp modDecls) =
+    "HsModule ("
+    <> show modExt
+    <> ") ("
+    <> show modName
+    <> ") ("
+    <> show modExp
+    <> ") ("
+    <> show modImp
+    <> ") ("
+    <> show modDecls
+    <> ")"
+
+instance (Show a) => Show (EpAnn a) where
+  show (EpAnn entry anns comments) = "EpAnn ("
+    <> show entry
+    <> ") ("
+    <> show anns
+    <> ") ("
+    <> show comments
+    <> ")"
+
+instance Show (EpAnnComments) where
+  show (EpaComments priors) = "EpAnnComments: " <> show priors
+  show (EpaCommentsBalanced prior follow) = "EpaCommentsBalanced: " <> show prior <> " " <> show follow
 
 -- | Generates a map of where the context is a type and where the context is a value
 -- i.e. where are the value decls and the type decls
-getCContext :: Position -> ParsedModule -> Maybe Context
-getCContext pos pm
+getCContext' :: Position -> ParsedModule -> Maybe Context
+getCContext' pos pm
   | Just (L (locA -> r) modName) <- moduleHeader
   , pos `isInsideSrcSpan` r
   = Just (ModuleContext (moduleNameString modName))
@@ -117,7 +214,11 @@ getCContext pos pm
   = Just ctx
 
   | otherwise
-  = Nothing
+  = do
+    -- traceM $ "All decls = " <> show (map getLoc decl)
+    let cmts = comments $ hsmodAnn $ hsmodExt $ unLoc $ pm_parsed_source pm
+    traceM $ "NOTE: " <> show cmts
+    Nothing
 
   where decl = hsmodDecls $ unLoc $ pm_parsed_source pm
         moduleHeader = hsmodName $ unLoc $ pm_parsed_source pm
@@ -564,11 +665,15 @@ getCompletions
     = filtImportCompls
 
     -- ------------------------------------------------------------------------
+    | Just AnnotationContext <- maybeContext
+    = []
+
+    -- ------------------------------------------------------------------------
     -- {-# LA| #-}
     -- we leave this condition here to avoid duplications and return empty list
     -- since HLS implements these completions (#haskell-language-server/pull/662)
     | "{-# " `T.isPrefixOf` fullLine
-    = []
+    = trace "CASE 4" []
 
     -- ------------------------------------------------------------------------
     | otherwise =
