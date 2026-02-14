@@ -76,12 +76,30 @@ import           GHC.Plugins                              (Depth (AllTheWay),
                                                            sdocStyle)
 
 import           Debug.Trace                              (trace, traceM)
+import           GHC.Exts                                 (Symbol)
 import           GHC.Parser.Annotation                    (AddEpAnn (..),
+                                                           AnnContext (..),
                                                            AnnList (..),
+                                                           AnnParen (..),
+                                                           AnnPragma (..),
+                                                           AnnSortKey (AnnSortKey, NoAnnSortKey),
+                                                           BindTag,
+                                                           DeclTag (..),
                                                            EpAnn (EpAnn),
+                                                           EpAnnCO (..),
                                                            EpAnnComments (..),
+                                                           EpToken (..),
+                                                           EpUniToken (..),
+                                                           NoEpAnns (NoEpAnns),
+                                                           SrcSpanAnnA,
+                                                           SrcSpanAnnN,
                                                            TrailingAnn,
                                                            comments)
+import           GHC.Types.Fixity                         (FixityDirection (..))
+import           GHC.Types.ForeignCall                    (CCallConv (..))
+import           GHC.Unit.Module.Warnings                 (InWarningCategory (..),
+                                                           WarningTxt (..))
+import           Language.Haskell.Syntax.Decls            (FunDep (..))
 
 -- See Note [Guidelines For Using CPP In GHCIDE Import Statements]
 
@@ -116,11 +134,11 @@ getCContext pos pm = let out = getCContext' pos pm in do
   traceM $ "Context = " <> show out
   out
 
-instance Show (HsDecl a) where
+instance Show (HsDecl GhcPs) where
   show (TyClD      _ _) = "HsDecl: TyClD"
   show (InstD      _ _) = "HsDecl: InstD"
   show (DerivD     _ _) = "HsDecl: DerivD"
-  show (ValD       _ _) = "HsDecl: ValD"
+  show (ValD       v1 v2) = "HsDecl: ValD (" <> show v1 <> ") (" <> show v2 <> ")"
   show (SigD       _ _) = "HsDecl: SigD"
   show (KindSigD   _ _) = "HsDecl: KindSigD"
   show (DefD       _ _) = "HsDecl: DefD"
@@ -132,6 +150,205 @@ instance Show (HsDecl a) where
   show (DocD _ _)       = "HsDecl: DocD"
   show (RoleAnnotD _ _) = "HsDecl: RoleAnnotD"
   show (XHsDecl _)      = "HsDecl: XHsDecl"
+
+instance Show NoExtField where
+  show NoExtField = "NoExtField"
+
+instance Show (HsBind GhcPs) where
+  show (FunBind extns id matches) = "FunBind (" <> show extns <> ") (" <> show id <> ") (" <> show matches <> ")"
+  show (PatBind _ _ _ _) = "PatBind"
+  show (VarBind _ _ _) = "VarBind"
+  show (PatSynBind _ _) = "PatSynBind"
+
+instance Show (MatchGroup GhcPs (GenLocated SrcSpanAnnA (HsExpr GhcPs))) where
+  show (MG x y)        = "MG (" <> show x <> ") (" <> show y <> ")"
+  show (XMatchGroup _) = "XMatchGroup"
+
+instance Show (Match GhcPs (GenLocated SrcSpanAnnA (HsExpr GhcPs))) where
+  show (Match w x y z) = "Match (" <> show w <> ") (" <> show x <> ") (" <> show y <> ") (" <> show z <> ")"
+
+instance Show (GRHSs GhcPs (GenLocated SrcSpanAnnA (HsExpr GhcPs))) where
+  show (GRHSs x y z) = "GRHSs (" <> show x <> ") (" <> show y <> ") (" <> show z <> ")"
+
+instance Show (HsLocalBinds GhcPs) where
+  show (HsValBinds x y) = "HsValBinds (" <> show x <> ") (" <> show y <> ")"
+
+-- instance Show (HsValBindsLR GhcPs GhcPs) where
+--   show (ValBinds x y z) = "ValBinds (" <> show x <> ") (" <> show y <> ") (" <> show z <> ")"
+
+instance Show (AnnSortKey BindTag) where
+  show NoAnnSortKey   = "NoAnnSortKey"
+  show (AnnSortKey x) = "AnnSortKey (" <> show x <> ")"
+
+instance Show (StmtLR GhcPs GhcPs (GenLocated SrcSpanAnnA (HsExpr GhcPs))) where
+  show _ = "StmtLR_Other"
+
+-- instance Show (HsExpr GhcPs) where
+--   show (HsVar _ _) = "HsVar () ()"
+-- deriving instance Show (HsExpr GhcPs)
+
+-- instance Show (Sig GhcPs) where
+--   show (TypeSig _ _ _) = "TypeSig"
+
+-- deriving instance Show (Sig GhcPs)
+-- deriving instance Show (HsWildCardBndrs GhcPs (GenLocated SrcSpanAnnA (HsSigType GhcPs)))
+-- deriving instance Show (HsSigType GhcPs)
+-- deriving instance Show (HsOuterSigTyVarBndrs GhcPs)
+-- deriving instance Show (HsTyVarBndr Specificity (GhcPass Parsed))
+-- deriving instance Show (HsType (GhcPass Parsed))
+-- deriving instance Show (HsRecFields GhcPs (GenLocated SrcSpanAnnA (HsExpr GhcPs)))
+-- deriving instance Show (FixitySig GhcPs)
+-- deriving instance Show DataConCantHappen
+-- deriving instance Show Specificity
+-- deriving instance Show (WithHsDocIdentifiers HsDocString (GhcPass Parsed))
+-- deriving instance Show (HsWildCardBndrs (GhcPass Parsed) (GenLocated SrcSpanAnnA (HsType (GhcPass Parsed))))
+-- deriving instance Show (FieldOcc GhcPs)
+-- deriving instance Show (BooleanFormula (GenLocated SrcSpanAnnN RdrName))
+-- deriving instance Show (HsForAllTelescope (GhcPass Parsed))
+-- deriving instance Show (HsFieldBind (GenLocated SrcSpanAnnA (FieldOcc GhcPs)) (GenLocated SrcSpanAnnA (HsExpr GhcPs)))
+-- deriving instance Show NamespaceSpecifier
+-- deriving instance Show (HsOverLit GhcPs)
+-- deriving instance Show AnnSig
+-- -- deriving instance Show (EpToken "@")
+-- deriving instance Show RecFieldsDotDot
+-- deriving instance Show GHC.Fixity
+-- deriving instance Show (HsTyVarBndr () (GhcPass Parsed))
+-- -- deriving instance Show (EpToken "data")
+-- deriving instance Show (HsLit GhcPs)
+-- deriving instance Show InlinePragma
+-- deriving instance Show (HsArrow (GhcPass Parsed))
+-- -- deriving instance Show (EpToken "type")
+-- deriving instance Show OverLitVal
+-- deriving instance Show FixityDirection
+-- deriving instance Show (HsTupArg GhcPs)
+-- deriving instance Show StringLiteral
+-- deriving instance Show (HsUntypedSplice (GhcPass Parsed))
+-- deriving instance Show Activation
+-- deriving instance Show (EpUniToken "->" "\8594")
+-- -- deriving instance Show (EpToken "in")
+-- deriving instance Show (ConDeclField (GhcPass Parsed))
+-- -- deriving instance Show (EpToken "%")
+-- -- deriving instance Show (EpToken "let")
+-- deriving instance Show (HsTyLit (GhcPass Parsed))
+-- deriving instance Show EpLinearArrow
+-- -- deriving instance Show (EpToken "(")
+-- deriving instance Show AnnContext
+-- deriving instance Show (EpToken (a :: Symbol))
+-- deriving instance Show (LHsRecUpdFields GhcPs)
+-- deriving instance Show (DotFieldOcc GhcPs)
+-- deriving instance Show HsTupleSort
+-- deriving instance Show (HsFieldBind (GenLocated SrcSpanAnnA (AmbiguousFieldOcc GhcPs)) (GenLocated SrcSpanAnnA (HsExpr GhcPs)))
+-- deriving instance Show (ArithSeqInfo GhcPs)
+-- deriving instance Show AnnParen
+-- deriving instance Show (HsFieldBind (GenLocated EpAnnCO (FieldLabelStrings GhcPs)) (GenLocated SrcSpanAnnA (HsExpr GhcPs)))
+-- deriving instance Show AnnFieldLabel
+-- deriving instance Show (AmbiguousFieldOcc GhcPs)
+-- deriving instance Show (HsQuote GhcPs)
+-- deriving instance Show HsIPName
+-- deriving instance Show FieldLabelString
+-- deriving instance Show (FieldLabelStrings GhcPs)
+-- deriving instance Show (HsCmdTop GhcPs)
+-- deriving instance Show HsSrcBang
+-- deriving instance Show (HsGroup GhcPs)
+-- deriving instance Show (HsPragE GhcPs)
+-- deriving instance Show PromotionFlag
+-- deriving instance Show (HsCmd GhcPs)
+-- deriving instance Show SrcUnpackedness
+-- deriving instance Show (SpliceDecl GhcPs)
+-- deriving instance Show EpAnnUnboundVar
+-- deriving instance Show SrcStrictness
+-- deriving instance Show (TyClGroup GhcPs)
+-- deriving instance Show AnnPragma
+-- deriving instance Show HsLamVariant
+-- deriving instance Show (DerivDecl GhcPs)
+-- deriving instance Show (StmtLR GhcPs GhcPs (GenLocated SrcSpanAnnA (HsCmd GhcPs)))
+-- deriving instance Show (TyClDecl GhcPs)
+-- deriving instance Show Boxity
+-- deriving instance Show (DefaultDecl GhcPs)
+-- deriving instance Show (MatchGroup GhcPs (GenLocated SrcSpanAnnA (HsCmd GhcPs)))
+-- deriving instance Show (RoleAnnotDecl GhcPs)
+-- deriving instance Show (WarningTxt GhcPs)
+-- deriving instance Show (ParStmtBlock GhcPs GhcPs)
+-- deriving instance Show (FamilyDecl GhcPs)
+-- deriving instance Show AnnExplicitSum
+-- deriving instance Show (ForeignDecl GhcPs)
+-- deriving instance Show HsArrAppType
+-- deriving instance Show (StandaloneKindSig GhcPs)
+-- deriving instance Show (DerivStrategy GhcPs)
+-- deriving instance Show (ApplicativeArg GhcPs)
+-- deriving instance Show (HsDataDefn GhcPs)
+-- deriving instance Show (Match GhcPs (GenLocated SrcSpanAnnA (HsCmd GhcPs)))
+-- deriving instance Show Role
+-- deriving instance Show (WithHsDocIdentifiers StringLiteral GhcPs)
+-- deriving instance Show (FamilyInfo GhcPs)
+-- deriving instance Show EpAnnHsCase
+-- deriving instance Show (WarnDecls GhcPs)
+-- deriving instance Show LexicalFixity
+-- deriving instance Show (InstDecl GhcPs)
+-- deriving instance Show OverlapMode
+-- deriving instance Show TransForm
+-- deriving instance Show (AnnSortKey DeclTag)
+-- deriving instance Show InWarningCategory
+-- deriving instance Show (LHsQTyVars GhcPs)
+-- deriving instance Show (ForeignImport GhcPs)
+-- deriving instance Show XViaStrategyPs
+-- deriving instance Show HsDoFlavour
+-- deriving instance Show (DataDefnCons (GenLocated SrcSpanAnnA (ConDecl GhcPs)))
+-- deriving instance Show (GRHSs GhcPs (GenLocated SrcSpanAnnA (HsCmd GhcPs)))
+-- deriving instance Show (FamEqn GhcPs (GenLocated SrcSpanAnnA (HsType GhcPs)))
+-- deriving instance Show AnnsIf
+-- deriving instance Show (AnnDecl GhcPs)
+-- deriving instance Show (FunDep GhcPs)
+-- deriving instance Show (FamilyResultSig GhcPs)
+-- deriving instance Show (ForeignExport GhcPs)
+-- deriving instance Show (HsDerivingClause GhcPs)
+-- deriving instance Show (WarnDecl GhcPs)
+-- deriving instance Show (ClsInstDecl GhcPs)
+-- deriving instance Show (HsTyVarBndr (HsBndrVis GhcPs) GhcPs)
+-- deriving instance Show CCallConv
+-- deriving instance Show (ConDecl GhcPs)
+-- deriving instance Show (GRHS GhcPs (GenLocated SrcSpanAnnA (HsCmd GhcPs)))
+
+instance Show Type where
+  show _ = "Type"
+
+deriving instance Show GrhsAnn
+
+-- deriving instance Show (GRHS GhcPs (GenLocated SrcSpanAnnA (HsExpr GhcPs)))
+
+instance Show NoEpAnns where
+  show NoEpAnns = "NoEpAnns"
+
+instance Show (HsMatchContext (GenLocated SrcSpanAnnN RdrName)) where
+  show (FunRhs _ _ _) = "FunRhs"
+  show _              = "other match context"
+
+instance Show (Pat GhcPs) where
+  show (WildPat _)   = "WildPat"
+  show (VarPat _ _)  = "VarPat"
+  show (LazyPat _ _) = "LazyPat"
+  show (AsPat _ _ _) = "AsPat"
+  show (ParPat _ _)  = "ParPat"
+  show x             = "other Pat"
+
+instance Show Origin where
+  show FromSource      = "FromSource"
+  show (Generated _ _) = "Generated"
+
+instance Show NameAnn where
+  show (NameAnn _ _ _ _ _)       = "NameAnn"
+  show (NameAnnCommas _ _ _ _ _) = "NameAnnCommas"
+  show (NameAnnBars _ _ _ _ _)   = "NameAnnBars"
+  show (NameAnnOnly _ _ _ _)     = "NameAnnOnly"
+  show (NameAnnRArrow _ _ _ _ _) = "NameAnnRArrow"
+  show (NameAnnQuote _ _ _)      = "NameAnnQuote"
+  show (NameAnnTrailing x)       = "NameAnnTrailing (" <> show x <> ")"
+
+instance Show RdrName where
+  show (Unqual u) = "Unqual (" <> show u <> ")"
+  show (Qual _ _) = "Qual"
+  show (Orig _ _) = "Orig"
+  show (Exact _)  = "Exact"
 
 instance Show AnnListItem where
   show (AnnListItem trail) = "AnnListItem " <> show trail
